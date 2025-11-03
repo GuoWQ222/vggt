@@ -4,7 +4,7 @@
 # This source code is licensed under the license found in the
 # LICENSE file in the root directory of this source tree.
 
-import os
+import os,re
 import glob
 import time
 import threading
@@ -113,35 +113,122 @@ def viser_wrapper(
 
     # Build the viser GUI
     gui_show_frames = server.gui.add_checkbox("Show Cameras", initial_value=True)
+    gui_show_global_points = server.gui.add_checkbox("Show Global Points", initial_value=True)
+
+    @gui_show_global_points.on_update
+    def _(_) -> None:
+        """Toggle visibility of global point clouds."""
+        for pn in point_nodes:
+            pn.visible = gui_show_global_points.value
 
     # Now the slider represents percentage of points to filter out
     gui_points_conf = server.gui.add_slider(
-        "Confidence Percent", min=0, max=100, step=0.1, initial_value=init_conf_threshold
+        "Confidence Percent", min=0, max=100, step=0.1, initial_value=init_conf_threshold, disabled=True
     )
 
     gui_frame_selector = server.gui.add_dropdown(
-        "Show Points from Frames", options=["All"] + [str(i) for i in range(S)], initial_value="All"
+        "Show Points from Frames", options=["All"] + [str(i) for i in range(S)], initial_value="All",disabled=True
     )
 
-    # Create the main point cloud handle
-    # Compute the threshold value as the given percentile
+    #add playback GUI(⭐)
+    with server.gui.add_folder("Playback"):
+        gui_timestep = server.gui.add_slider(
+            "Timestep",
+            min=0,
+            max=S - 1,
+            step=1,
+            initial_value=0,
+            disabled=True,
+        )
+        gui_next_frame = server.gui.add_button("Next Frame")
+        gui_prev_frame = server.gui.add_button("Prev Frame")
+        gui_playing = server.gui.add_checkbox("Playing", False)
+        gui_show_points = server.gui.add_checkbox("Show Points", True)
+        gui_last10_frames = server.gui.add_checkbox("Last 10 Frames", False)
+        gui_framerate = server.gui.add_slider(
+            "FPS", min=1, max=60, step=1, initial_value=1
+        )
+        gui_framerate_options = server.gui.add_button_group(
+            "FPS options", ("10", "20", "30", "60")
+        )
+
+    @gui_last10_frames.on_update
+    def _(_) -> None:
+        """Toggle visibility of last 10 frames' points."""
+        if gui_last10_frames.value:
+            current_timestep = gui_timestep.value
+            start_frame = max(0, current_timestep - 9)
+            for i, frame_node in enumerate(frames):
+                frame_node.visible = (start_frame <= i) & (i <= current_timestep)
+        else:
+            # Restore visibility based on current timestep
+            current_timestep = gui_timestep.value
+            for i, point_node in enumerate(frames):
+                point_node.visible = (i == current_timestep) 
+    
+
+    # Disable frame controls when we're playing.
+    @gui_playing.on_update
+    def _(_) -> None:
+        gui_timestep.disabled = gui_playing.value
+        gui_next_frame.disabled = gui_playing.value
+        gui_prev_frame.disabled = gui_playing.value
+
+    # Set the framerate when we click one of the options.
+    @gui_framerate_options.on_click
+    def _(_) -> None:
+        gui_framerate.value = int(gui_framerate_options.value)
+
+    prev_timestep = gui_timestep.value
+
+    # Frame step buttons.
+    @gui_next_frame.on_click
+    def _(_) -> None:
+        gui_timestep.value = (gui_timestep.value + 1) % S
+        if gui_timestep.value == 0:
+            for i, frame_node in enumerate(frames):
+                frame_node.visible = (i == gui_timestep.value)
+            for i, point_node in enumerate(point_nodes):
+                point_node.visible = (i == gui_timestep.value)
+        
+
+    @gui_prev_frame.on_click
+    def _(_) -> None:
+        gui_timestep.value = (gui_timestep.value - 1) % S
+        
+    
+    # Toggle frame visibility when the timestep slider changes.
+    @gui_timestep.on_update
+    def _(_) -> None:
+        nonlocal prev_timestep
+        current_timestep = gui_timestep.value
+        with server.atomic():
+            # Toggle visibility.
+            if gui_show_points.value:
+                frames[current_timestep].visible = True
+                if current_timestep <= prev_timestep:
+                    frames[prev_timestep].visible = False
+                point_nodes[current_timestep].visible = True
+            # frames[prev_timestep].visible = False
+            else:
+                frames[current_timestep].visible = True
+                if current_timestep <= prev_timestep:
+                    frames[prev_timestep].visible = False
+            
+        prev_timestep = current_timestep
+
     init_threshold_val = np.percentile(conf_flat, init_conf_threshold)
     init_conf_mask = (conf_flat >= init_threshold_val) & (conf_flat > 0.1)
-    point_cloud = server.scene.add_point_cloud(
-        name="viser_pcd",
-        points=points_centered[init_conf_mask],
-        colors=colors_flat[init_conf_mask],
-        point_size=0.001,
-        point_shape="circle",
-    )
 
     # We will store references to frames & frustums so we can toggle visibility
     frames: List[viser.FrameHandle] = []
+    point_nodes: list[viser.PointCloudHandle] = []
     frustums: List[viser.CameraFrustumHandle] = []
 
     def visualize_frames(extrinsics: np.ndarray, images_: np.ndarray) -> None:
         """
         Add camera frames and frustums to the scene.
+        intrinsics: (S, 3, 3)
         extrinsics: (S, 3, 4)
         images_:    (S, 3, H, W)
         """
@@ -177,52 +264,41 @@ def viser_wrapper(
             )
             frames.append(frame_axis)
 
+            #point cloud and colors
+            mask = init_conf_mask[img_id * H * W : (img_id + 1) * H * W]
+            position = points_centered[img_id * H * W : (img_id + 1) * H * W]
+            position = position[mask]
+            color_img = colors_flat[img_id * H * W : (img_id + 1) * H * W]
+            color_img = color_img[mask]
+
             # Convert the image for the frustum
             img = images_[img_id]  # shape (3, H, W)
             img = (img.transpose(1, 2, 0) * 255).astype(np.uint8)
             h, w = img.shape[:2]
 
             # If you want correct FOV from intrinsics, do something like:
-            # fx = intrinsics_cam[img_id, 0, 0]
-            # fov = 2 * np.arctan2(h/2, fx)
+            fx = intrinsics_cam[img_id, 0, 0]
+            fov = 2 * np.arctan2(h/2, fx)
             # For demonstration, we pick a simple approximate FOV:
-            fy = 1.1 * h
-            fov = 2 * np.arctan2(h / 2, fy)
+            # fy = 1.1 * h
+            # fov = 2 * np.arctan2(h / 2, fy)
 
             # Add the frustum
             frustum_cam = server.scene.add_camera_frustum(
                 f"frame_{img_id}/frustum", fov=fov, aspect=w / h, scale=0.05, image=img, line_width=1.0
             )
             frustums.append(frustum_cam)
+            point_nodes.append(
+                server.scene.add_point_cloud(
+                    name=f"points_{img_id}",
+                    points=position,
+                    colors=color_img,
+                    point_size=0.0001,
+                    point_shape="rounded",
+                )
+            )   
             attach_callback(frustum_cam, frame_axis)
 
-    def update_point_cloud() -> None:
-        """Update the point cloud based on current GUI selections."""
-        # Here we compute the threshold value based on the current percentage
-        current_percentage = gui_points_conf.value
-        threshold_val = np.percentile(conf_flat, current_percentage)
-
-        print(f"Threshold absolute value: {threshold_val}, percentage: {current_percentage}%")
-
-        conf_mask = (conf_flat >= threshold_val) & (conf_flat > 1e-5)
-
-        if gui_frame_selector.value == "All":
-            frame_mask = np.ones_like(conf_mask, dtype=bool)
-        else:
-            selected_idx = int(gui_frame_selector.value)
-            frame_mask = frame_indices == selected_idx
-
-        combined_mask = conf_mask & frame_mask
-        point_cloud.points = points_centered[combined_mask]
-        point_cloud.colors = colors_flat[combined_mask]
-
-    @gui_points_conf.on_update
-    def _(_) -> None:
-        update_point_cloud()
-
-    @gui_frame_selector.on_update
-    def _(_) -> None:
-        update_point_cloud()
 
     @gui_show_frames.on_update
     def _(_) -> None:
@@ -235,8 +311,14 @@ def viser_wrapper(
     # Add the camera frames to the scene
     visualize_frames(cam_to_world, images)
 
+    for i, frame_node in enumerate(frames):
+        frame_node.visible = (i == gui_timestep.value)
+    for i, point_node in enumerate(point_nodes):
+        point_node.visible = (i == gui_timestep.value)
+
     print("Starting viser server...")
     # If background_mode is True, spawn a daemon thread so the main thread can continue.
+    prev_timestep = gui_timestep.value
     if background_mode:
 
         def server_loop():
@@ -247,7 +329,16 @@ def viser_wrapper(
         thread.start()
     else:
         while True:
-            time.sleep(0.01)
+        # Update the timestep if we're playing.
+            if gui_playing.value:
+                gui_timestep.value = (gui_timestep.value + 1) % S
+
+            # Update point size of both this timestep and the next one! There's
+            # redundancy here, but this will be optimized out internally by viser.
+            #
+            # We update the point size for the next timestep so that it will be
+            # immediately available when we toggle the visibility.
+            time.sleep(1.0 / gui_framerate.value)
 
     return server
 
@@ -317,6 +408,9 @@ parser.add_argument(
 )
 parser.add_argument("--mask_sky", action="store_true", help="Apply sky segmentation to filter out sky points")
 
+def natural_key(s: str):
+    # 自然排序：img2.png 会排在 img10.png 前面
+    return [int(t) if t.isdigit() else t.lower() for t in re.split(r'(\d+)', s)]
 
 def main():
     """
@@ -342,39 +436,44 @@ def main():
     print(f"Using device: {device}")
 
     print("Initializing and loading VGGT model...")
-    # model = VGGT.from_pretrained("facebook/VGGT-1B")
+    # model = VGGT.from_pretrained("facebook/VGGT-1B",local_files_only=True)
 
-    model = VGGT()
-    _URL = "https://huggingface.co/facebook/VGGT-1B/resolve/main/model.pt"
-    model.load_state_dict(torch.hub.load_state_dict_from_url(_URL))
+    # model = VGGT()
+    # _URL = "https://huggingface.co/facebook/VGGT-1B/resolve/main/model.pt"
+    # model.load_state_dict(torch.hub.load_state_dict_from_url(_URL))
 
-    model.eval()
-    model = model.to(device)
+    # model.eval()
+    # model = model.to(device)
 
     # Use the provided image folder path
     print(f"Loading images from {args.image_folder}...")
     image_names = glob.glob(os.path.join(args.image_folder, "*"))
+    image_names = [os.path.basename(name) for name in image_names]
+    image_names = sorted(image_names, key=natural_key)
+    #image_names.sort()
+    image_names = [os.path.join(args.image_folder, name) for name in image_names]
+    print(image_names[:20])
     print(f"Found {len(image_names)} images")
 
-    images = load_and_preprocess_images(image_names).to(device)
-    print(f"Preprocessed images shape: {images.shape}")
+    # images = load_and_preprocess_images(image_names).to(device)
+    # print(f"Preprocessed images shape: {images.shape}")
 
     print("Running inference...")
-    dtype = torch.bfloat16 if torch.cuda.get_device_capability()[0] >= 8 else torch.float16
+    # dtype = torch.bfloat16 if torch.cuda.get_device_capability()[0] >= 8 else torch.float16
 
-    with torch.no_grad():
-        with torch.cuda.amp.autocast(dtype=dtype):
-            predictions = model(images)
+    # with torch.no_grad():
+    #     with torch.cuda.amp.autocast(dtype=dtype):
+    #         predictions = model(images)
 
-    print("Converting pose encoding to extrinsic and intrinsic matrices...")
-    extrinsic, intrinsic = pose_encoding_to_extri_intri(predictions["pose_enc"], images.shape[-2:])
-    predictions["extrinsic"] = extrinsic
-    predictions["intrinsic"] = intrinsic
+    # print("Converting pose encoding to extrinsic and intrinsic matrices...")
+    # extrinsic, intrinsic = pose_encoding_to_extri_intri(predictions["pose_enc"], images.shape[-2:])
+    # predictions["extrinsic"] = extrinsic
+    # predictions["intrinsic"] = intrinsic
 
-    print("Processing model outputs...")
-    for key in predictions.keys():
-        if isinstance(predictions[key], torch.Tensor):
-            predictions[key] = predictions[key].cpu().numpy().squeeze(0)  # remove batch dimension and convert to numpy
+    # print("Processing model outputs...")
+    # for key in predictions.keys():
+    #     if isinstance(predictions[key], torch.Tensor):
+    #         predictions[key] = predictions[key].cpu().numpy().squeeze(0)  # remove batch dimension and convert to numpy
 
     if args.use_point_map:
         print("Visualizing 3D points from point map")
@@ -385,6 +484,10 @@ def main():
         print("Sky segmentation enabled - will filter out sky points")
 
     print("Starting viser visualization...")
+    
+    predictions = torch.load("predictions.pt")
+    # torch.save(predictions, "predictions.pt")
+    # return 
 
     viser_server = viser_wrapper(
         predictions,

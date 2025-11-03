@@ -69,7 +69,8 @@ class VKittiDataset(BaseDataset):
                 sequence_list = [line.strip() for line in f.readlines()]
         else:
             # Generate sequence list and save to txt            
-            sequence_list = glob.glob(osp.join(self.VKitti_DIR, "*/*/*/rgb/*"))            
+            # sequence_list = glob.glob(osp.join(self.VKitti_DIR, "*/*/*/rgb/*"))    
+            sequence_list = glob.glob(osp.join(self.VKitti_DIR, "*/*/*/*rgb*"))        
             sequence_list = [file_path.split(self.VKitti_DIR)[-1].lstrip('/') for file_path in sequence_list]
             sequence_list = sorted(sequence_list)
 
@@ -113,23 +114,28 @@ class VKittiDataset(BaseDataset):
         if seq_name is None:
             seq_name = self.sequence_list[seq_index]
 
-        camera_id = int(seq_name[-1])
+        # camera_id = int(seq_name[-1])
 
         # Load camera parameters
         try:
-            camera_parameters = np.loadtxt(
-                osp.join(self.VKitti_DIR, "/".join(seq_name.split("/")[:2]), "extrinsic.txt"), 
-                delimiter=" ", 
-                skiprows=1
+            # camera_parameters = np.loadtxt(
+            #     osp.join(self.VKitti_DIR, "/".join(seq_name.split("/")[:2]), "extrinsic.txt"), 
+            #     delimiter=" ", 
+            #     skiprows=1
+            # )
+            # camera_parameters = camera_parameters[camera_parameters[:, 1] == camera_id]
+            data = np.load(
+                osp.join(self.VKitti_DIR, seq_name.replace("rgb.jpg","cam.npz")),
             )
-            camera_parameters = camera_parameters[camera_parameters[:, 1] == camera_id]
+            camera_parameters = data["camera_pose"]
 
-            camera_intrinsic = np.loadtxt(
-                osp.join(self.VKitti_DIR, "/".join(seq_name.split("/")[:2]), "intrinsic.txt"), 
-                delimiter=" ", 
-                skiprows=1
-            )
-            camera_intrinsic = camera_intrinsic[camera_intrinsic[:, 1] == camera_id]
+            # camera_intrinsic = np.loadtxt(
+            #     osp.join(self.VKitti_DIR, "/".join(seq_name.split("/")[:2]), "intrinsic.txt"), 
+            #     delimiter=" ", 
+            #     skiprows=1
+            # )
+            # camera_intrinsic = camera_intrinsic[camera_intrinsic[:, 1] == camera_id]
+            camera_intrinsic = data['camera_intrinsics']
         except Exception as e:
             logging.error(f"Error loading camera parameters for {seq_name}: {e}")
             raise

@@ -1,0 +1,2 @@
+INFO 2025-11-01 12:47:33,210 general.py: 221: GPU SEED: 840
+INFO 2025-11-01 12:47:33,212 trainer.py: 241: Setting up components: Model, Loss, Logger, etc.

@@ -45,8 +45,8 @@ class DynamicTorchDataset(ABC):
         self.dataset = instantiate(dataset, common_config=common_config, _recursive_=False)
 
         # Extract aspect ratio and image number ranges from the configuration
-        self.aspect_ratio_range = common_config.augs.aspects  # e.g., [0.5, 1.0]
-        self.image_num_range = common_config.img_nums    # e.g., [2, 24]
+        self.aspect_ratio_range = common_config.augs.aspects  # e.g., [0.33, 1.0] for train,[1,1] for val
+        self.image_num_range = common_config.img_nums    # e.g., [2, 24] for train,[2,12] for val
 
         # Validate the aspect ratio and image number ranges
         if len(self.aspect_ratio_range) != 2 or self.aspect_ratio_range[0] > self.aspect_ratio_range[1]:
@@ -97,12 +97,12 @@ class DynamicBatchSampler(Sampler):
     for each sample. Batches within a sample share the same aspect ratio and image number.
     """
     def __init__(self,
-                 sampler,
-                 aspect_ratio_range,
-                 image_num_range,
-                 epoch=0,
-                 seed=42,
-                 max_img_per_gpu=48):
+                sampler,
+                aspect_ratio_range,
+                image_num_range,
+                epoch=0,
+                seed=42,
+                max_img_per_gpu=48):
         """
         Initializes the dynamic batch sampler.
 
@@ -125,7 +125,7 @@ class DynamicBatchSampler(Sampler):
 
         # Possible image numbers, e.g., [2, 3, 4, ..., 24]
         self.possible_nums = np.array([n for n in self.image_num_weights.keys()
-                                       if self.image_num_range[0] <= n <= self.image_num_range[1]])
+                                    if self.image_num_range[0] <= n <= self.image_num_range[1]])
 
         # Normalize weights for sampling
         weights = [self.image_num_weights[n] for n in self.possible_nums]

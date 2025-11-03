@@ -39,7 +39,7 @@ def make_sincos_pos_embed(embed_dim: int, pos: torch.Tensor, omega_0: float = 10
 
     Args:
     - embed_dim: The embedding dimension.
-    - pos: The position to generate the embedding from.
+    - pos: The position to generate the embedding from.shape [H*W,1]
 
     Returns:
     - emb: The generated 1D positional embedding.
@@ -104,6 +104,6 @@ def create_uv_grid(
 
     # Create 2D meshgrid (width x height) and stack into UV
     uu, vv = torch.meshgrid(x_coords, y_coords, indexing="xy")
-    uv_grid = torch.stack((uu, vv), dim=-1)
+    uv_grid = torch.stack((uu, vv), dim=-1) #(width, height, 2)
 
     return uv_grid

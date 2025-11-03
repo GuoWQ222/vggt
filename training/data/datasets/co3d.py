@@ -101,6 +101,8 @@ class Co3dDataset(BaseDataset):
         if CO3D_DIR is None or CO3D_ANNOTATION_DIR is None:
             raise ValueError("Both CO3D_DIR and CO3D_ANNOTATION_DIR must be specified.")
 
+        SEEN_CATEGORIES = [dir for dir in os.listdir(CO3D_DIR) if os.path.isdir(os.path.join(CO3D_DIR, dir)) and "_" not in dir]
+        SEEN_CATEGORIES = ['apple']
         category = sorted(SEEN_CATEGORIES)
 
         if self.debug:
@@ -144,16 +146,26 @@ class Co3dDataset(BaseDataset):
                     continue
 
                 for seq_name, seq_data in annotation.items():
+                    invalid_seq = []
+                    for data_dict in seq_data:
+                        path = os.path.join(self.CO3D_DIR, data_dict["filepath"])
+                        if not os.path.exists(path):
+                            #logging.warning(f"File not found: {path}, skipping this image.")
+                            invalid_seq.append(data_dict)
+                    for data_dict in invalid_seq:
+                        seq_data.remove(data_dict)
                     if len(seq_data) < min_num_images:
                         continue
                     if seq_name in self.invalid_sequence:
                         continue
+                    print(f"{seq_name}, num images: {len(seq_data)}, valid")
                     total_frame_num += len(seq_data)
                     self.data_store[seq_name] = seq_data
 
         self.sequence_list = list(self.data_store.keys())
         self.sequence_list_len = len(self.sequence_list)
         self.total_frame_num = total_frame_num
+        print("length:",self.sequence_list_len, self.total_frame_num)
 
         status = "Training" if self.training else "Testing"
         logging.info(f"{status}: Co3D Data size: {self.sequence_list_len}")

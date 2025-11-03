@@ -15,6 +15,7 @@ from vggt.layers import PatchEmbed
 from vggt.layers.block import Block
 from vggt.layers.rope import RotaryPositionEmbedding2D, PositionGetter
 from vggt.layers.vision_transformer import vit_small, vit_base, vit_large, vit_giant2
+from vggt.layers.lact_ttt import TTTOperator,FastWeightGluMLPMultihead as FastWeight
 
 logger = logging.getLogger(__name__)
 
@@ -94,18 +95,40 @@ class Aggregator(nn.Module):
             ]
         )
 
+        # self.global_blocks = nn.ModuleList(
+        #     [
+        #         block_fn(
+        #             dim=embed_dim,
+        #             num_heads=num_heads,
+        #             mlp_ratio=mlp_ratio,
+        #             qkv_bias=qkv_bias,
+        #             proj_bias=proj_bias,
+        #             ffn_bias=ffn_bias,
+        #             init_values=init_values,
+        #             qk_norm=qk_norm,
+        #             rope=self.rope,
+        #         )
+        #         for _ in range(depth)
+        #     ]
+        # )
+
         self.global_blocks = nn.ModuleList(
             [
-                block_fn(
-                    dim=embed_dim,
-                    num_heads=num_heads,
-                    mlp_ratio=mlp_ratio,
-                    qkv_bias=qkv_bias,
-                    proj_bias=proj_bias,
-                    ffn_bias=ffn_bias,
-                    init_values=init_values,
-                    qk_norm=qk_norm,
-                    rope=self.rope,
+                nn.Sequential(
+                    nn.LayerNorm(embed_dim,bias=ffn_bias),
+                    FastWeight(
+                        dim=embed_dim,
+                        head_dim=embed_dim // num_heads,
+                        inter_multi=2,
+                        bias=qkv_bias,
+                        base_lr=0.01,
+                        muon_update_steps=5,
+                    ),
+                    MLP(
+                        dim=embed_dim,
+                        inter_multi=int(mlp_ratio),
+                        bias=ffn_bias,
+                    )
                 )
                 for _ in range(depth)
             ]
@@ -233,6 +256,12 @@ class Aggregator(nn.Module):
         frame_idx = 0
         global_idx = 0
         output_list = []
+        ttt_op_order = [
+            TTTOperator(start=0, end=None, update=True, apply=True),
+        ]
+        info={
+            "ttt_op_order": ttt_op_order,
+        }
 
         for _ in range(self.aa_block_num):
             for attn_type in self.aa_order:
@@ -242,7 +271,7 @@ class Aggregator(nn.Module):
                     )
                 elif attn_type == "global":
                     tokens, global_idx, global_intermediates = self._process_global_attention(
-                        tokens, B, S, P, C, global_idx, pos=pos
+                        tokens, B, S, P, C, global_idx, info=info
                     )
                 else:
                     raise ValueError(f"Unknown attention type: {attn_type}")
@@ -281,7 +310,7 @@ class Aggregator(nn.Module):
 
         return tokens, frame_idx, intermediates
 
-    def _process_global_attention(self, tokens, B, S, P, C, global_idx, pos=None):
+    def _process_global_attention(self, tokens, B, S, P, C, global_idx, pos=None, info=None):
         """
         Process global attention blocks. We keep tokens in shape (B, S*P, C).
         """
@@ -296,7 +325,10 @@ class Aggregator(nn.Module):
         # by default, self.aa_block_size=1, which processes one block at a time
         for _ in range(self.aa_block_size):
             if self.training:
-                tokens = checkpoint(self.global_blocks[global_idx], tokens, pos, use_reentrant=self.use_reentrant)
+                # tokens = checkpoint(self.global_blocks[global_idx], tokens, pos, use_reentrant=self.use_reentrant)
+                tokens = checkpoint(self.global_blocks[global_idx][0], tokens,  use_reentrant=self.use_reentrant)
+                tokens,_ = checkpoint(self.global_blocks[global_idx][1], tokens, info=info, use_reentrant=self.use_reentrant)
+                tokens,_ = checkpoint(self.global_blocks[global_idx][2], tokens,  use_reentrant=self.use_reentrant)
             else:
                 tokens = self.global_blocks[global_idx](tokens, pos=pos)
             global_idx += 1
@@ -312,7 +344,7 @@ def slice_expand_and_flatten(token_tensor, B, S):
     2) Uses the second position (index=1) for all remaining frames (S-1 frames)
     3) Expands both to match batch size B
     4) Concatenates to form (B, S, X, C) where each sequence has 1 first-position token
-       followed by (S-1) second-position tokens
+        followed by (S-1) second-position tokens
     5) Flattens to (B*S, X, C) for processing
 
     Returns:
@@ -329,3 +361,18 @@ def slice_expand_and_flatten(token_tensor, B, S):
     # Finally flatten => shape (B*S, ...)
     combined = combined.view(B * S, *combined.shape[2:])
     return combined
+
+class MLP(nn.Module):
+
+    def __init__(self, dim, inter_multi=4, bias=False):
+        super().__init__()
+        intermediate_dim = int(dim * inter_multi)
+        self.c_fc = nn.Linear(dim, intermediate_dim, bias=bias)
+        self.gelu = nn.GELU()
+        self.c_proj = nn.Linear(intermediate_dim, dim, bias=bias)
+
+    def forward(self, x, *args):
+        x = self.c_fc(x)
+        x = self.gelu(x)
+        x = self.c_proj(x)
+        return x, {}

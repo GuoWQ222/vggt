@@ -310,7 +310,7 @@ class Trainer:
         Args:
             epoch: The current epoch number.
             checkpoint_names: A list of names for the checkpoint file (e.g., "checkpoint_latest").
-                              If None, saves "checkpoint" and "checkpoint_{epoch}" on frequency.
+                            If None, saves "checkpoint" and "checkpoint_{epoch}" on frequency.
         """
         checkpoint_folder = self.checkpoint_conf.save_dir
         safe_makedirs(checkpoint_folder)
@@ -546,7 +546,8 @@ class Trainer:
         for data_iter, batch in enumerate(train_loader):
             if data_iter > limit_train_batches:
                 break
-            
+            print(batch['images'].shape)
+            raise NotImplementedError("Debugging")
             # measure data loading time
             data_time.update(time.time() - end)
             data_times.append(data_time.val)

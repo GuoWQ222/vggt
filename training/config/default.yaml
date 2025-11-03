@@ -5,7 +5,7 @@ exp_name: exp001
 img_size: 518
 num_workers: 8
 seed_value: 42
-accum_steps: 2    # We did not use gradient accumulation in our training, while if you suffer from OOM, you can try to use it.
+accum_steps: 1    # We did not use gradient accumulation in our training, while if you suffer from OOM, you can try to use it.
 patch_size: 14
 val_epoch_freq: 5
 max_img_per_gpu: 48
@@ -28,25 +28,27 @@ data:
     dataset:
       _target_: data.composed_dataset.ComposedDataset
       dataset_configs:
-        - _target_: data.datasets.co3d.Co3dDataset
+        - _target_: data.datasets.vkitti.VKittiDataset
           split: train
-          CO3D_DIR: /YOUR/PATH/TO/CO3D
-          CO3D_ANNOTATION_DIR: /YOUR/PATH/TO/CO3D_ANNOTATION
+          VKitti_DIR: /mnt/shared-storage-user/idc2-shared/dataset/preprocess/vkitti_processed
+          len_train: 100000
+          expand_ratio: 8
+          min_num_images: 120
   val:
-    _target_: data.dynamic_dataloader.DynamicTorchDataset
-    num_workers: ${num_workers}
-    max_img_per_gpu: ${max_img_per_gpu}
-    common_config:
-      img_size: ${img_size}
-      patch_size: ${patch_size}
-      debug: False
-    dataset:
-      _target_: data.composed_dataset.ComposedDataset
-      dataset_configs:
-        - _target_: data.datasets.co3d.Co3dDataset
-          split: test
-          CO3D_DIR: /YOUR/PATH/TO/CO3D
-          CO3D_ANNOTATION_DIR: /YOUR/PATH/TO/CO3D_ANNOTATION
+    # _target_: data.dynamic_dataloader.DynamicTorchDataset
+    # num_workers: ${num_workers}
+    # max_img_per_gpu: ${max_img_per_gpu}
+    # common_config:
+    #   img_size: ${img_size}
+    #   patch_size: ${patch_size}
+    #   debug: False
+    # dataset:
+    #   _target_: data.composed_dataset.ComposedDataset
+    #   dataset_configs:
+    #     - _target_: data.datasets.co3d.Co3dDataset
+    #       split: test
+    #       CO3D_DIR: /cpfs/user/guowenqi/dataset/co3dv2
+    #       CO3D_ANNOTATION_DIR: /cpfs/user/guowenqi/dataset/co3d_anno
 
 
 logging:
@@ -86,7 +88,7 @@ logging:
 checkpoint:
   save_dir: logs/${exp_name}/ckpts
   save_freq: 5
-  resume_checkpoint_path: /YOUR/PATH/TO/CKPT
+  resume_checkpoint_path: /cpfs/user/guowenqi/vggt/training/model.pt
   strict: False
 
 
@@ -119,7 +121,7 @@ optim:
     weight_decay: 0.05
 
   frozen_module_names:
-      - "*aggregator*"  # example, freeze the aggregator
+      - "*patch_embed*"  # example, freeze the aggregator
 
   amp:
     enabled: True

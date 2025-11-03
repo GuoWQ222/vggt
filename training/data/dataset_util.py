@@ -32,9 +32,9 @@ def crop_image_depth_and_intrinsic_by_pp(
     
     Crops the given image and depth map around the camera's principal point, as defined by `intrinsic`.
     Specifically:
-      - Ensures that the crop is centered on (cx, cy).
-      - Optionally pads the image (and depth map) if `strict=True` and the result is smaller than `target_shape`.
-      - Shifts the camera intrinsic matrix (and `track` if provided) accordingly.
+        - Ensures that the crop is centered on (cx, cy).
+        - Optionally pads the image (and depth map) if `strict=True` and the result is smaller than `target_shape`.
+        - Shifts the camera intrinsic matrix (and `track` if provided) accordingly.
 
     Args:
         image (np.ndarray):
@@ -175,11 +175,11 @@ def resize_image_depth_and_intrinsic(
     to create some additional margin (based on `rescale_aug`).
 
     Steps:
-      1. Compute a scaling factor so that the resized result is at least `target_shape + safe_bound`.
-      2. Apply an optional triangular random factor if `rescale_aug=True`.
-      3. Resize the image with LANCZOS if downscaling, BICUBIC if upscaling.
-      4. Resize the depth map with nearest-neighbor.
-      5. Update the camera intrinsic and track coordinates (if any).
+        1. Compute a scaling factor so that the resized result is at least `target_shape + safe_bound`.
+        2. Apply an optional triangular random factor if `rescale_aug=True`.
+        3. Resize the image with LANCZOS if downscaling, BICUBIC if upscaling.
+        4. Resize the depth map with nearest-neighbor.
+        5. Update the camera intrinsic and track coordinates (if any).
 
     Args:
         image (np.ndarray):
