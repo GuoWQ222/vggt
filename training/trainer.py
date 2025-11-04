@@ -144,6 +144,7 @@ class Trainer:
         # Instantiate components (model, loss, etc.)
         self._setup_components()
         self._setup_dataloaders()
+        
 
         # Move model to the correct device
         self.model.to(self.device)
@@ -546,8 +547,8 @@ class Trainer:
         for data_iter, batch in enumerate(train_loader):
             if data_iter > limit_train_batches:
                 break
-            print(batch['images'].shape)
-            raise NotImplementedError("Debugging")
+            logging.info(f"Image size: {batch['images'].size()}")
+            
             # measure data loading time
             data_time.update(time.time() - end)
             data_times.append(data_time.val)

@@ -70,7 +70,7 @@ class VKittiDataset(BaseDataset):
         else:
             # Generate sequence list and save to txt            
             # sequence_list = glob.glob(osp.join(self.VKitti_DIR, "*/*/*/rgb/*"))    
-            sequence_list = glob.glob(osp.join(self.VKitti_DIR, "*/*/*/*rgb*"))        
+            sequence_list = glob.glob(osp.join(self.VKitti_DIR, "*/*/*"))        
             sequence_list = [file_path.split(self.VKitti_DIR)[-1].lstrip('/') for file_path in sequence_list]
             sequence_list = sorted(sequence_list)
 
@@ -123,19 +123,23 @@ class VKittiDataset(BaseDataset):
             #     delimiter=" ", 
             #     skiprows=1
             # )
-            # camera_parameters = camera_parameters[camera_parameters[:, 1] == camera_id]
-            data = np.load(
-                osp.join(self.VKitti_DIR, seq_name.replace("rgb.jpg","cam.npz")),
-            )
-            camera_parameters = data["camera_pose"]
+            # camera_parameters = camera_parameters[camera_parameters[:, 1] == camera_id]  #e.g. shape (447,18)
+            camera_p = []
+            camera_i = []
+            camera_list = glob.glob(osp.join(self.VKitti_DIR, seq_name, "*.npz"))
+            for cam_path in camera_list:
+                cam_data = np.load(cam_path)
+                camera_p.append(cam_data['camera_pose'][None,...])
+                camera_i.append(cam_data['camera_intrinsics'][None,...])
+            camera_parameters = np.concatenate(camera_p, axis=0) #e.g. shape(447,4,4)
 
             # camera_intrinsic = np.loadtxt(
             #     osp.join(self.VKitti_DIR, "/".join(seq_name.split("/")[:2]), "intrinsic.txt"), 
             #     delimiter=" ", 
             #     skiprows=1
             # )
-            # camera_intrinsic = camera_intrinsic[camera_intrinsic[:, 1] == camera_id]
-            camera_intrinsic = data['camera_intrinsics']
+            # camera_intrinsic = camera_intrinsic[camera_intrinsic[:, 1] == camera_id] #e.g. shape(447,6)
+            camera_intrinsic = np.concatenate(camera_i, axis=0)  #e.g. shape(447,3,3)
         except Exception as e:
             logging.error(f"Error loading camera parameters for {seq_name}: {e}")
             raise
@@ -148,6 +152,8 @@ class VKittiDataset(BaseDataset):
         if self.get_nearby:
             ids = self.get_nearby_ids(ids, num_images, expand_ratio=self.expand_ratio)
 
+        ids = np.sort(ids)
+        
         target_image_shape = self.get_target_shape(aspect_ratio)
 
         images = []
@@ -160,8 +166,8 @@ class VKittiDataset(BaseDataset):
         original_sizes = []
 
         for image_idx in ids:
-            image_filepath = osp.join(self.VKitti_DIR, seq_name, f"rgb_{image_idx:05d}.jpg")
-            depth_filepath = osp.join(self.VKitti_DIR, seq_name, f"depth_{image_idx:05d}.png").replace("/rgb", "/depth")
+            image_filepath = osp.join(self.VKitti_DIR, seq_name, f"{image_idx:05d}_rgb.jpg")
+            depth_filepath = osp.join(self.VKitti_DIR, seq_name, f"{image_idx:05d}_depth.png")
 
             image = read_image_cv2(image_filepath)
             depth_map = cv2.imread(depth_filepath, cv2.IMREAD_ANYCOLOR | cv2.IMREAD_ANYDEPTH)
@@ -173,14 +179,16 @@ class VKittiDataset(BaseDataset):
             original_size = np.array(image.shape[:2])
 
             # Process camera matrices
-            extri_opencv = camera_parameters[image_idx][2:].reshape(4, 4)
+            # extri_opencv = camera_parameters[image_idx][2:].reshape(4, 4)
+            extri_opencv = camera_parameters[image_idx]
             extri_opencv = extri_opencv[:3]
 
-            intri_opencv = np.eye(3)
-            intri_opencv[0, 0] = camera_intrinsic[image_idx][-4]
-            intri_opencv[1, 1] = camera_intrinsic[image_idx][-3]
-            intri_opencv[0, 2] = camera_intrinsic[image_idx][-2]
-            intri_opencv[1, 2] = camera_intrinsic[image_idx][-1]
+            # intri_opencv = np.eye(3)
+            # intri_opencv[0, 0] = camera_intrinsic[image_idx][-4]
+            # intri_opencv[1, 1] = camera_intrinsic[image_idx][-3]
+            # intri_opencv[0, 2] = camera_intrinsic[image_idx][-2]
+            # intri_opencv[1, 2] = camera_intrinsic[image_idx][-1]
+            intri_opencv = camera_intrinsic[image_idx]
 
             (
                 image,

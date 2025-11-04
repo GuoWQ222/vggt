@@ -8,7 +8,7 @@ seed_value: 42
 accum_steps: 1    # We did not use gradient accumulation in our training, while if you suffer from OOM, you can try to use it.
 patch_size: 14
 val_epoch_freq: 5
-max_img_per_gpu: 48
+max_img_per_gpu: 100
 
 limit_train_batches: 800
 limit_val_batches: 400
@@ -88,7 +88,7 @@ logging:
 checkpoint:
   save_dir: logs/${exp_name}/ckpts
   save_freq: 5
-  resume_checkpoint_path: /cpfs/user/guowenqi/vggt/training/model.pt
+  resume_checkpoint_path: /mnt/shared-storage-user/guowenqi/codebase/vggt/vggt.pt
   strict: False
 
 

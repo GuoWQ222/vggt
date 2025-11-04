@@ -46,7 +46,7 @@ class DynamicTorchDataset(ABC):
 
         # Extract aspect ratio and image number ranges from the configuration
         self.aspect_ratio_range = common_config.augs.aspects  # e.g., [0.33, 1.0] for train,[1,1] for val
-        self.image_num_range = common_config.img_nums    # e.g., [2, 24] for train,[2,12] for val
+        self.image_num_range = common_config.img_nums    # e.g., [90, 120] for train,[2,12] for val
 
         # Validate the aspect ratio and image number ranges
         if len(self.aspect_ratio_range) != 2 or self.aspect_ratio_range[0] > self.aspect_ratio_range[1]:

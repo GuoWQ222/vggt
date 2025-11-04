@@ -217,8 +217,8 @@ class TupleConcatDataset(ConcatDataset):
 
         Args:
             idx (int or tuple): The index. If tuple, the first element is the sequence
-                               index across the concatenated datasets, and the rest are
-                               passed down. If int, it's treated as the sequence index.
+                                index across the concatenated datasets, and the rest are
+                                passed down. If int, it's treated as the sequence index.
 
         Returns:
             The item returned by the underlying dataset's __getitem__ method.
