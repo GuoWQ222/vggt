@@ -69,6 +69,7 @@ class Aggregator(nn.Module):
         qk_norm=True,
         rope_freq=100,
         init_values=0.01,
+        ttt_layers=4
     ):
         super().__init__()
 
@@ -112,27 +113,41 @@ class Aggregator(nn.Module):
         #     ]
         # )
 
-        self.global_blocks = nn.ModuleList(
-            [
-                nn.Sequential(
-                    nn.LayerNorm(embed_dim,bias=ffn_bias),
-                    FastWeight(
-                        dim=embed_dim,
-                        head_dim=embed_dim // num_heads,
-                        inter_multi=2,
-                        bias=qkv_bias,
-                        base_lr=0.01,
-                        muon_update_steps=5,
-                    ),
-                    MLP(
-                        dim=embed_dim,
-                        inter_multi=int(mlp_ratio),
-                        bias=ffn_bias,
-                    )
+        self.global_blocks = [
+            block_fn(
+                dim=embed_dim,
+                num_heads=num_heads,
+                mlp_ratio=mlp_ratio,
+                qkv_bias=qkv_bias,
+                proj_bias=proj_bias,
+                ffn_bias=ffn_bias,
+                init_values=init_values,
+                qk_norm=qk_norm,
+                rope=self.rope,
+            )
+            for _ in range(depth-ttt_layers)
+        ]
+        self.ttt_blocks = [
+            nn.Sequential(
+                nn.LayerNorm(embed_dim,bias=ffn_bias),
+                FastWeight(
+                    dim=embed_dim,
+                    head_dim=embed_dim // num_heads,
+                    inter_multi=2,
+                    bias=qkv_bias,
+                    base_lr=0.001,
+                    muon_update_steps=5,
+                ),
+                MLP(
+                    dim=embed_dim,
+                    inter_multi=int(mlp_ratio),
+                    bias=ffn_bias,
                 )
-                for _ in range(depth)
-            ]
-        )
+            )
+            for _ in range(ttt_layers)
+        ]
+        self.global_blocks = nn.ModuleList([*self.global_blocks, *self.ttt_blocks])
+        self.ttt_layers = ttt_layers
 
         self.depth = depth
         self.aa_order = aa_order
@@ -263,16 +278,21 @@ class Aggregator(nn.Module):
             "ttt_op_order": ttt_op_order,
         }
 
-        for _ in range(self.aa_block_num):
+        for id in range(self.aa_block_num):
             for attn_type in self.aa_order:
                 if attn_type == "frame":
                     tokens, frame_idx, frame_intermediates = self._process_frame_attention(
                         tokens, B, S, P, C, frame_idx, pos=pos
                     )
                 elif attn_type == "global":
-                    tokens, global_idx, global_intermediates = self._process_global_attention(
-                        tokens, B, S, P, C, global_idx, info=info
-                    )
+                    if id < self.depth - self.ttt_layers:
+                            tokens, global_idx, global_intermediates = self._process_global_attention(
+                            tokens, B, S, P, C, global_idx, pos=pos
+                        )
+                    else:
+                        tokens, global_idx, global_intermediates = self._process_global_attention(
+                            tokens, B, S, P, C, global_idx, info=info
+                        )
                 else:
                     raise ValueError(f"Unknown attention type: {attn_type}")
 
@@ -325,10 +345,14 @@ class Aggregator(nn.Module):
         # by default, self.aa_block_size=1, which processes one block at a time
         for _ in range(self.aa_block_size):
             if self.training:
-                # tokens = checkpoint(self.global_blocks[global_idx], tokens, pos, use_reentrant=self.use_reentrant)
-                tokens = checkpoint(self.global_blocks[global_idx][0], tokens,  use_reentrant=self.use_reentrant)
-                tokens,_ = checkpoint(self.global_blocks[global_idx][1], tokens, info=info, use_reentrant=self.use_reentrant)
-                tokens,_ = checkpoint(self.global_blocks[global_idx][2], tokens,  use_reentrant=self.use_reentrant)
+                if pos is not None:
+                    tokens = checkpoint(self.global_blocks[global_idx], tokens, pos, use_reentrant=self.use_reentrant)
+                elif info is not None:
+                    tokens = checkpoint(self.global_blocks[global_idx][0], tokens,  use_reentrant=self.use_reentrant)
+                    tokens,_ = checkpoint(self.global_blocks[global_idx][1], tokens, info=info, use_reentrant=self.use_reentrant)
+                    tokens,_ = checkpoint(self.global_blocks[global_idx][2], tokens,  use_reentrant=self.use_reentrant)
+                else:
+                    raise NotImplementedError("Unknown global attention type")
             else:
                 tokens = self.global_blocks[global_idx](tokens, pos=pos)
             global_idx += 1

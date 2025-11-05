@@ -12,7 +12,7 @@ dtype = torch.bfloat16 if torch.cuda.get_device_capability()[0] >= 8 else torch.
 # Initialize the model and load the pretrained weights.
 # This will automatically download the model weights the first time it's run, which may take a while.
 model = VGGT()
-ckpt_path = "/cpfs/user/guowenqi/vggt-lact/training/model.pt"
+ckpt_path = "/mnt/shared-storage-user/guowenqi/codebase/vggt/vggt.pt"
 print(f"Resuming training from {ckpt_path} ")
 
 with g_pathmgr.open(ckpt_path, "rb") as f:
@@ -29,7 +29,7 @@ model.to(device)
 
 
 # Load and preprocess example images (replace with your own image paths)
-folder = "/cpfs/user/guowenqi/dataset/co3dv2/apple/110_13051_23361/images"
+folder = "/mnt/shared-storage-user/idc2-shared/dataset/preprocess/hypersim_processed/ai_001_001/cam_00"
 json_file = "/cpfs/user/guowenqi/dataset/co3dv2/apple/selected_seqs_test.json"
 # with open(json_file, 'r') as f:
 #     data = json.load(f)
@@ -38,7 +38,7 @@ json_file = "/cpfs/user/guowenqi/dataset/co3dv2/apple/selected_seqs_test.json"
 # for id in data: 
 #     fname = f"frame{id:06d}.jpg"
 #     image_path.append(os.path.join(folder, fname))
-image_path = [os.path.join(folder,f) for f in os.listdir(folder) if f.endswith('.jpg')]
+image_path = [os.path.join(folder,f) for f in os.listdir(folder) if f.endswith(('.jpg','.png'))]
 image_path.sort()
 image_path = image_path[::5]
 images = load_and_preprocess_images(image_path).to(device)
